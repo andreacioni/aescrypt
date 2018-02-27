@@ -26,17 +26,15 @@ const (
 )
 
 type AESCrypt struct {
-	version    AESVersion
-	password   string
-	derivedKey [KeySizeBytes]byte
-	iv         []byte
+	version  AESVersion
+	password []byte
+	iv       []byte
 }
 
 func NewVersion(ver AESVersion, key string) *AESCrypt {
 	return &AESCrypt{
-		version:    ver,
-		password:   key,
-		derivedKey: sha256.Sum256([]byte(key)),
+		version:  ver,
+		password: []byte(key),
 	}
 }
 
@@ -68,7 +66,7 @@ func (c *AESCrypt) Encrypt(fromPath, toPath string) error {
 
 	iv1 := generateRandomIV()
 	iv2 := generateRandomIV()
-	aesKey1 := c.derivedKey[:]
+	aesKey1 := c.deriveKey(iv1)
 	aesKey2 := generateRandomAESKey()
 
 	debugf("IV 1: %x", iv1)
@@ -103,7 +101,7 @@ func (c *AESCrypt) Encrypt(fromPath, toPath string) error {
 
 	lastBlockLength := (len(src) % BlockSizeBytes)
 
-	debugf("E(text): %x", src)
+	debugf("text: %x", src)
 
 	cipherData := encrypt(aesKey2, iv2, src, lastBlockLength)
 
@@ -167,7 +165,7 @@ func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 	}
 
 	iv1 := src[:IVSizeBytes]
-	aesKey1 := c.derivedKey[:]
+	aesKey1 := c.deriveKey(iv1)
 
 	debugf("IV 1: %x", iv1)
 	debugf("AES 1: %x", aesKey1)
@@ -184,6 +182,12 @@ func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 	debugf("E(IV+KEY): %x", ivKeyEnc)
 	debugf("IV+KEY: %x", ivKey)
 
+	iv2 := ivKey[:IVSizeBytes]
+	aesKey2 := ivKey[IVSizeBytes:]
+
+	debugf("IV 2: %x", iv2)
+	debugf("AES 2: %x", aesKey2)
+
 	src = src[IVSizeBytes+KeySizeBytes:] //Skip to HMAC
 
 	if len(src) < KeySizeBytes {
@@ -191,13 +195,11 @@ func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 	}
 	hmac1 := src[:KeySizeBytes]
 	debugf("HMAC 1: %x", hmac1)
+	debugf("HMAC 1: %x", evaluateHMAC(aesKey1, ivKeyEnc))
 
 	if !hmac.Equal(evaluateHMAC(aesKey1, ivKeyEnc), hmac1) {
 		return fmt.Errorf("first HMAC doesn't match, entered password is not valid")
 	}
-
-	iv2 := ivKey[:IVSizeBytes]
-	aesKey2 := ivKey[IVSizeBytes:]
 
 	src = src[KeySizeBytes:] //Skip to encrypted message
 
@@ -212,15 +214,16 @@ func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 		debugf("E(text)+PAD: %x", cipherData)
 		debugf("Last block size: %d", lastBlockLength)
 
-		cipherData = decrypt(aesKey2, iv2, cipherData, lastBlockLength)
-
-		debugf("E(text): %x", cipherData)
-
-		dst.Write(cipherData)
-
 		hmac2 := evaluateHMAC(aesKey2, cipherData)
 
+		debugf("HMAC 2: %x", hmac2)
 		debugf("HMAC 2: %x", src[len(src)-KeySizeBytes:])
+
+		cipherData = decrypt(aesKey2, iv2, cipherData, lastBlockLength)
+
+		debugf("text: %x", cipherData)
+
+		dst.Write(cipherData)
 
 		if !hmac.Equal(hmac2, src[len(src)-KeySizeBytes:]) {
 			return fmt.Errorf("second HMAC doesn't match, file is invalid")
@@ -241,6 +244,18 @@ func (c *AESCrypt) getIV() []byte {
 		c.iv = generateRandomIV()
 	}
 	return c.iv
+}
+
+func (c *AESCrypt) deriveKey(iv []byte) []byte {
+	aesKey := make([]byte, KeySizeBytes)
+	copy(aesKey, iv)
+	for i := 0; i < 8192; i++ {
+		h := sha256.New()
+		h.Write(aesKey)
+		h.Write(c.password)
+		aesKey = h.Sum(nil)
+	}
+	return aesKey
 }
 
 //skipExtension used to skip the extension part (if present).
@@ -310,6 +325,7 @@ func encrypt(key, iv, src []byte, lastBlockSize int) []byte {
 
 func evaluateHMAC(key, data []byte) []byte {
 	h := hmac.New(sha256.New, key)
+	h.Write(data)
 	return h.Sum(nil)
 }
 
