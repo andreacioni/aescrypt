@@ -1,8 +1,10 @@
 package aescrypt
 
 import (
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
+	"os"
 	"reflect"
 	"testing"
 
@@ -28,6 +30,13 @@ func TestThreeBytes(t *testing.T) {
 	require.Equal(t, []byte{0x41, 0x45, 0x53}, []byte("AES"))
 }
 
+func TestHMAC(t *testing.T) {
+	k := generateRandomAESKey()
+	b := generateRandomBytesSlice(10)
+
+	require.True(t, hmac.Equal(evaluateHMAC(k, b), evaluateHMAC(k, b)))
+}
+
 func TestRandomBytes(t *testing.T) {
 	b := generateRandomBytesSlice(10)
 
@@ -36,11 +45,55 @@ func TestRandomBytes(t *testing.T) {
 }
 
 func TestIVKeyEncryption(t *testing.T) {
-	encrypt(generateRandomAESKey(), generateRandomIV(), append(generateRandomIV(), generateRandomAESKey()...))
+	encrypt(generateRandomAESKey(), generateRandomIV(), append(generateRandomIV(), generateRandomAESKey()...), 0)
 }
 
-func TestEncrypt(t *testing.T) {
+func TestEncryptV2(t *testing.T) {
+	key := "password"
 
+	err := NewV2(key).Encrypt("testdata/hello_world.txt", "testdata/txt.aes")
+
+	require.NoError(t, err)
+
+	err = NewV2(key).Decrypt("testdata/txt.aes", "testdata/hello_world.txt.1")
+
+	require.NoError(t, err)
+
+	err = os.Remove("testdata/txt.aes")
+
+	require.NoError(t, err)
+}
+
+func TestEncryptV1(t *testing.T) {
+	key := "password"
+
+	err := NewV1(key).Encrypt("testdata/hello_world.txt", "testdata/txt.aes")
+
+	require.NoError(t, err)
+
+	err = NewV1(key).Decrypt("testdata/txt.aes", "testdata/hello_world.txt.1")
+
+	require.NoError(t, err)
+
+	err = os.Remove("testdata/txt.aes")
+
+	require.NoError(t, err)
+}
+
+func TestEncryptNew(t *testing.T) {
+	key := "password"
+
+	err := New(key).Encrypt("testdata/hello_world.txt", "testdata/txt.aes")
+
+	require.NoError(t, err)
+
+	err = New(key).Decrypt("testdata/txt.aes", "testdata/hello_world.txt.1")
+
+	require.NoError(t, err)
+
+	err = os.Remove("testdata/txt.aes")
+
+	require.NoError(t, err)
 }
 
 func TestDeepEqual(t *testing.T) {
@@ -57,4 +110,17 @@ func TestDeepEqual(t *testing.T) {
 
 func TestExtensionBytesLengthConvert(t *testing.T) {
 	require.EqualValues(t, 24, binary.BigEndian.Uint16([]byte{0x00, 0x18}))
+}
+
+func TestPadding(t *testing.T) {
+	text := []byte("Hello World!")
+	padded := pkcs7Pad(text, BlockSizeBytes, len(text)%BlockSizeBytes)
+	unpadded := pkcs7Unpad(padded, BlockSizeBytes, len(text)%BlockSizeBytes)
+
+	require.EqualValues(t, 12, len(text))
+	require.EqualValues(t, BlockSizeBytes, len(padded))
+
+	require.Equal(t, append(text, []byte{0x04, 0x04, 0x04, 0x04}...), padded)
+
+	require.Equal(t, text, unpadded)
 }

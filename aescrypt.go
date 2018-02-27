@@ -17,9 +17,10 @@ import (
 type AESVersion byte
 
 const (
+	debug                       = true
 	AESCryptVersion1 AESVersion = 0x01
 	AESCryptVersion2 AESVersion = 0x02
-	BlockSizeBytes              = 32
+	BlockSizeBytes              = 16
 	KeySizeBytes                = 32
 	IVSizeBytes                 = 16
 )
@@ -31,7 +32,7 @@ type AESCrypt struct {
 	iv         []byte
 }
 
-func New(ver AESVersion, key string) *AESCrypt {
+func NewVersion(ver AESVersion, key string) *AESCrypt {
 	return &AESCrypt{
 		version:    ver,
 		password:   key,
@@ -39,12 +40,16 @@ func New(ver AESVersion, key string) *AESCrypt {
 	}
 }
 
+func New(key string) *AESCrypt {
+	return NewV2(key)
+}
+
 func NewV1(key string) *AESCrypt {
-	return New(AESCryptVersion1, key)
+	return NewVersion(AESCryptVersion1, key)
 }
 
 func NewV2(key string) *AESCrypt {
-	return New(AESCryptVersion2, key)
+	return NewVersion(AESCryptVersion2, key)
 }
 
 func (c *AESCrypt) Encrypt(fromPath, toPath string) error {
@@ -66,7 +71,12 @@ func (c *AESCrypt) Encrypt(fromPath, toPath string) error {
 	aesKey1 := c.derivedKey[:]
 	aesKey2 := generateRandomAESKey()
 
-	var dst *bytes.Buffer
+	debugf("IV 1: %x", iv1)
+	debugf("IV 2: %x", iv2)
+	debugf("AES 1: %x", aesKey1)
+	debugf("AES 2: %x", aesKey2)
+
+	var dst bytes.Buffer
 
 	dst.Write([]byte("AES"))       //Byte representation of string 'AES'
 	dst.WriteByte(byte(c.version)) //Version
@@ -77,16 +87,37 @@ func (c *AESCrypt) Encrypt(fromPath, toPath string) error {
 		dst.WriteByte(0x00) //No extension
 	}
 
-	dst.Write(iv1)                                             //16 bytes for Initialization Vector
-	ivKeyEnc := encrypt(aesKey1, iv1, append(iv2, aesKey2...)) // Encrypted IV + key
-	dst.Write(ivKeyEnc)
-	dst.Write(evaluateHMAC(aesKey1, ivKeyEnc)) // HMAC(Encrypted IV + key)
+	dst.Write(iv1) //16 bytes for Initialization Vector
+	ivKey := append(iv2, aesKey2...)
+	ivKeyEnc := encrypt(aesKey1, iv1, ivKey, 0) // Encrypted IV + key
 
-	lastBlockLength := byte((len(src) % BlockSizeBytes) & 0x0f)
-	cipherData := encrypt(aesKey2, iv2, src)
+	debugf("IV+KEY: %x", ivKey)
+	debugf("E(IV+KEY): %x", ivKeyEnc)
+
+	dst.Write(ivKeyEnc)
+	hmac1 := evaluateHMAC(aesKey1, ivKeyEnc)
+
+	debugf("HMAC 1: %x", hmac1)
+
+	dst.Write(hmac1) // HMAC(Encrypted IV + key)
+
+	lastBlockLength := (len(src) % BlockSizeBytes)
+
+	debugf("E(text): %x", src)
+
+	cipherData := encrypt(aesKey2, iv2, src, lastBlockLength)
+
+	debugf("E(text)+PAD: %x", cipherData)
+	debugf("Last block size: %d", lastBlockLength)
+
 	dst.Write(cipherData)
-	dst.WriteByte(lastBlockLength)
-	dst.Write(evaluateHMAC(aesKey2, cipherData))
+	dst.WriteByte(byte(lastBlockLength))
+
+	hmac2 := evaluateHMAC(aesKey2, cipherData)
+
+	debugf("HMAC 2: %x", hmac2)
+
+	dst.Write(hmac2)
 
 	err = ioutil.WriteFile(toPath, dst.Bytes(), 0600)
 
@@ -135,39 +166,70 @@ func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 	iv1 := src[:IVSizeBytes]
 	aesKey1 := c.derivedKey[:]
 
+	debugf("IV 1: %x", iv1)
+	debugf("AES 1: %x", aesKey1)
+
 	src = src[IVSizeBytes:] //Skip to encrypted IV+KEY
 
 	if len(src) < IVSizeBytes+KeySizeBytes {
 		return fmt.Errorf("encrypted IV+KEY not found")
 	}
 
-	ivKey := decrypt(aesKey1, iv1, src[:IVSizeBytes+KeySizeBytes])
+	ivKeyEnc := src[:IVSizeBytes+KeySizeBytes]
+	ivKey := decrypt(aesKey1, iv1, ivKeyEnc, 0)
+
+	debugf("IV+KEY: %x", ivKey)
+	debugf("E(IV+KEY): %x", ivKeyEnc)
 
 	src = src[IVSizeBytes+KeySizeBytes:] //Skip to HMAC
 
 	if len(src) < KeySizeBytes {
 		return fmt.Errorf("first HMAC not found")
 	}
+	hmac1 := src[:KeySizeBytes]
+	debugf("HMAC 1: %x", hmac1)
 
-	if !hmac.Equal(evaluateHMAC(aesKey1, ivKey), src[:KeySizeBytes]) {
+	if !hmac.Equal(evaluateHMAC(aesKey1, ivKeyEnc), hmac1) {
 		return fmt.Errorf("first HMAC doesn't match, entered password is not valid")
 	}
 
 	iv2 := ivKey[:IVSizeBytes]
 	aesKey2 := ivKey[IVSizeBytes:]
 
-	src = src[KeySizeBytes:]
+	src = src[KeySizeBytes:] //Skip to encrypted message
 
-	var dst *bytes.Buffer
+	var dst bytes.Buffer
 
 	if len(src) < KeySizeBytes+1 { //HMAC + size byte
 		return fmt.Errorf("no enough bytes for encrypted message")
 	} else if len(src) > KeySizeBytes+1 { //Empty message not proceed inside this block
-		cipherData := src[:len(src)-KeySizeBytes+1]
-		dst.Write(decrypt(aesKey2, iv2, cipherData))
+		lastBlockLength := int(src[len(src)-KeySizeBytes-1])
+		cipherData := src[:len(src)-KeySizeBytes-1]
+
+		debugf("E(text)+PAD: %x", cipherData)
+
+		cipherData = decrypt(aesKey2, iv2, src[:len(src)-KeySizeBytes+1], lastBlockLength)
+
+		debugf("E(text): %x", cipherData)
+		debugf("Last block size: %d", lastBlockLength)
+
+		dst.Write(cipherData)
+
+		hmac2 := evaluateHMAC(aesKey2, cipherData)
+
+		debugf("HMAC 2: %x", src[len(src)-KeySizeBytes:])
+
+		if !hmac.Equal(hmac2, src[len(src)-KeySizeBytes:]) {
+			return fmt.Errorf("second HMAC doesn't match, file is invalid")
+		}
 
 	}
 
+	err = ioutil.WriteFile(toPath, dst.Bytes(), 0600)
+
+	if err != nil {
+		return fmt.Errorf("failed to write to destination file: %v", err)
+	}
 	return nil
 }
 
@@ -207,7 +269,7 @@ func skipExtension(src []byte) (int, error) {
 	}
 }
 
-func decrypt(key, iv, src []byte) []byte {
+func decrypt(key, iv, src []byte, lastBlockSize int) []byte {
 	block, err := aes.NewCipher(key)
 
 	if err != nil {
@@ -216,6 +278,8 @@ func decrypt(key, iv, src []byte) []byte {
 
 	cbc := cipher.NewCBCDecrypter(block, iv)
 
+	src = pkcs7Unpad(src, BlockSizeBytes, lastBlockSize)
+
 	dst := make([]byte, len(src))
 
 	cbc.CryptBlocks(dst, src)
@@ -223,7 +287,7 @@ func decrypt(key, iv, src []byte) []byte {
 	return dst
 }
 
-func encrypt(key, iv, src []byte) []byte {
+func encrypt(key, iv, src []byte, lastBlockSize int) []byte {
 	block, err := aes.NewCipher(key)
 
 	if err != nil {
@@ -231,6 +295,8 @@ func encrypt(key, iv, src []byte) []byte {
 	}
 
 	cbc := cipher.NewCBCEncrypter(block, iv)
+
+	src = pkcs7Pad(src, BlockSizeBytes, lastBlockSize)
 
 	dst := make([]byte, len(src))
 
@@ -240,7 +306,8 @@ func encrypt(key, iv, src []byte) []byte {
 }
 
 func evaluateHMAC(key, data []byte) []byte {
-	return hmac.New(sha256.New, key).Sum(data)
+	h := hmac.New(sha256.New, key)
+	return h.Sum(nil)
 }
 
 func generateRandomAESKey() []byte {
@@ -260,4 +327,37 @@ func generateRandomBytesSlice(size int) []byte {
 	}
 
 	return randSlice
+}
+
+func pkcs7Pad(b []byte, blocksize, lastBlockSize int) []byte {
+	if lastBlockSize != 0 {
+		toBeAdded := BlockSizeBytes - lastBlockSize
+		a := make([]byte, toBeAdded)
+
+		for i := range a {
+			a[i] = byte(toBeAdded)
+		}
+
+		b = append(b, a...)
+
+	}
+
+	return b
+}
+
+func pkcs7Unpad(b []byte, blocksize, lastBlockSize int) []byte {
+	if lastBlockSize != 0 {
+		toBeRemoved := BlockSizeBytes - lastBlockSize
+
+		b = b[:len(b)-toBeRemoved]
+	}
+
+	return b
+}
+
+func debugf(format string, a ...interface{}) {
+	if debug {
+		fmt.Printf(format, a)
+		fmt.Println()
+	}
 }
