@@ -5,29 +5,34 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
 	"io/ioutil"
 	"os"
 )
 
+type AESVersion byte
+
 const (
-	AESCryptVersion = 0x02
-	KeySizeBytes    = 32
-	IVSizeBytes     = 16
+	AESCryptVersion1 AESVersion = 0x01
+	AESCryptVersion2 AESVersion = 0x02
+	KeySizeBytes                = 32
+	IVSizeBytes                 = 16
 )
 
 type AESCrypt struct {
+	version    AESVersion
 	password   string
 	derivedKey [KeySizeBytes]byte
 	iv         []byte
 }
 
-func New(key string) *AESCrypt {
+func New(ver AESVersion, key string) *AESCrypt {
 	return &AESCrypt{
+		version:    ver,
 		password:   key,
 		derivedKey: sha256.Sum256([]byte(key)),
-		iv:         nil,
 	}
 }
 
@@ -45,26 +50,24 @@ func (c *AESCrypt) Encrypt(fromPath, toPath string) error {
 		return fmt.Errorf("Unable to read the file to encrypt: %v", fromPath)
 	}
 
-	aesCipher, err := aes.NewCipher(c.derivedKey[:])
-
-	if err != nil {
-		return fmt.Errorf("Unable to istantiate AES cipher: %v", fromPath)
-	}
-
-	iv := c.getIV()
-
-	cbcEncrypter := cipher.NewCBCEncrypter(aesCipher, iv)
+	iv1 := generateRandomIV()
+	iv2 := generateRandomIV()
 
 	var dst *bytes.Buffer
 
 	dst.Write([]byte("AES"))       //Byte representation of string 'AES'
-	dst.WriteByte(AESCryptVersion) //Version
+	dst.WriteByte(byte(c.version)) //Version
 	dst.WriteByte(0x00)            //Reserverd
-	dst.WriteByte(0x00)            //No extension
-	dst.WriteByte(0x00)            //No extension
 
-	dst.Write(iv)                                                 //16 bytes for Initialization Vector
-	dst.Write(encryptIVAndKey(cbcEncrypter, iv, c.derivedKey[:])) // Encrypted IV + key
+	if c.version == AESCryptVersion2 {
+		dst.WriteByte(0x00) //No extension
+		dst.WriteByte(0x00) //No extension
+	}
+
+	dst.Write(iv1)                                   //16 bytes for Initialization Vector
+	ivKeyEnc := encryptIVAndKey(iv, c.derivedKey[:]) // Encrypted IV + key
+	dst.Write(ivKeyEnc)
+	dst.Write(evaluateHMAC(c.derivedKey[:], ivKeyEnc)) // HMAC(Encrypted IV + key)
 
 	fmt.Println(src)
 	return nil
@@ -81,17 +84,42 @@ func (c *AESCrypt) getIV() []byte {
 	return c.iv
 }
 
-func encryptIVAndKey(c cipher.BlockMode, iv []byte, key []byte) []byte {
-	src := append(iv, key...)
+func encryptIVAndKey(iv1, iv2, key1, key2 []byte) []byte {
+	block, err := aes.NewCipher(key)
+
+	if err != nil {
+		panic(err)
+	}
+
+	cbc := cipher.NewCBCEncrypter(block, iv1)
+
+	src := append(iv2, generateAESKey()...)
 	dst := make([]byte, KeySizeBytes+IVSizeBytes)
-	c.CryptBlocks(dst, src)
+
+	cbc.CryptBlocks(dst, src)
+
 	return dst
 }
 
-func generateHMAC(key []byte) []byte {
-	return hmac.New(sha256.New, key).Sum()
+func evaluateHMAC(key []byte, data []byte) []byte {
+	return hmac.New(sha256.New, key).Sum(data)
+}
+
+func generateAESKey() []byte {
+	return generateRandomBytesSlice(KeySizeBytes)
 }
 
 func generateRandomIV() []byte {
-	return make([]byte, IVSizeBytes)
+	return generateRandomBytesSlice(IVSizeBytes)
+}
+
+func generateRandomBytesSlice(size int) []byte {
+	randSlice := make([]byte, size)
+	_, err := rand.Read(randSlice)
+
+	if err != nil {
+		panic(err)
+	}
+
+	return randSlice
 }
