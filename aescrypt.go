@@ -150,6 +150,9 @@ func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 		if err != nil {
 			return fmt.Errorf("invalid extension found: %v", err)
 		}
+		if ivIndex > len(src) {
+			return fmt.Errorf("no more bytes")
+		}
 		src = src[ivIndex:]
 		break
 	case byte(AESCryptVersion1):
@@ -255,7 +258,7 @@ func skipExtension(src []byte) (int, error) {
 		extLen := int(binary.BigEndian.Uint16(src[:2]))
 
 		if extLen == 0 {
-			return index + 4, nil
+			return index, nil
 		}
 
 		src = src[2:] //Skip extension length
@@ -264,7 +267,7 @@ func skipExtension(src []byte) (int, error) {
 			return 0, fmt.Errorf("size not match current extension length")
 		}
 
-		index += extLen
+		index += extLen + 2
 		src = src[extLen:]
 	}
 }
