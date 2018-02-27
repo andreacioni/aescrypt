@@ -78,6 +78,10 @@ func TestEncryptV1(t *testing.T) {
 	err = os.Remove("testdata/txt.aes")
 
 	require.NoError(t, err)
+
+	err = os.Remove("testdata/hello_world.txt.1")
+
+	require.NoError(t, err)
 }
 
 func TestEncryptNew(t *testing.T) {
@@ -92,6 +96,10 @@ func TestEncryptNew(t *testing.T) {
 	require.NoError(t, err)
 
 	err = os.Remove("testdata/txt.aes")
+
+	require.NoError(t, err)
+
+	err = os.Remove("testdata/hello_world.txt.1")
 
 	require.NoError(t, err)
 }
@@ -123,4 +131,16 @@ func TestPadding(t *testing.T) {
 	require.Equal(t, append(text, []byte{0x04, 0x04, 0x04, 0x04}...), padded)
 
 	require.Equal(t, text, unpadded)
+}
+
+func TestDecryptExternaFile(t *testing.T) {
+	key := "password"
+
+	err := New(key).Decrypt("testdata/hello_world_v2.txt.aes", "testdata/txt.aes")
+
+	require.NoError(t, err)
+
+	err = os.Remove("testdata/txt.aes")
+
+	require.NoError(t, err)
 }

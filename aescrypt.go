@@ -178,8 +178,8 @@ func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 	ivKeyEnc := src[:IVSizeBytes+KeySizeBytes]
 	ivKey := decrypt(aesKey1, iv1, ivKeyEnc, 0)
 
-	debugf("IV+KEY: %x", ivKey)
 	debugf("E(IV+KEY): %x", ivKeyEnc)
+	debugf("IV+KEY: %x", ivKey)
 
 	src = src[IVSizeBytes+KeySizeBytes:] //Skip to HMAC
 
@@ -207,11 +207,11 @@ func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 		cipherData := src[:len(src)-KeySizeBytes-1]
 
 		debugf("E(text)+PAD: %x", cipherData)
+		debugf("Last block size: %d", lastBlockLength)
 
-		cipherData = decrypt(aesKey2, iv2, src[:len(src)-KeySizeBytes+1], lastBlockLength)
+		cipherData = decrypt(aesKey2, iv2, cipherData, lastBlockLength)
 
 		debugf("E(text): %x", cipherData)
-		debugf("Last block size: %d", lastBlockLength)
 
 		dst.Write(cipherData)
 
@@ -255,7 +255,7 @@ func skipExtension(src []byte) (int, error) {
 		extLen := int(binary.BigEndian.Uint16(src[:2]))
 
 		if extLen == 0 {
-			return index, nil
+			return index + 4, nil
 		}
 
 		src = src[2:] //Skip extension length
@@ -265,7 +265,7 @@ func skipExtension(src []byte) (int, error) {
 		}
 
 		index += extLen
-		src = src[index:]
+		src = src[extLen:]
 	}
 }
 
@@ -278,11 +278,11 @@ func decrypt(key, iv, src []byte, lastBlockSize int) []byte {
 
 	cbc := cipher.NewCBCDecrypter(block, iv)
 
-	src = pkcs7Unpad(src, BlockSizeBytes, lastBlockSize)
-
 	dst := make([]byte, len(src))
 
 	cbc.CryptBlocks(dst, src)
+
+	dst = pkcs7Unpad(dst, BlockSizeBytes, lastBlockSize)
 
 	return dst
 }
