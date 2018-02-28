@@ -8,14 +8,14 @@ Golang implementation of AES file encryption/decryption compatible with [AES Cry
 aesCrypt := aescrypt.New("super_secret_password")
 
 if err := aesCrypt.Encrypt("plain_text_file.txt", "plain_text_file.txt.aes"); err != nil {
-    fmt.Print("Failed to encrypt the file: %v", err)
+    fmt.Printf("Failed to encrypt the file: %v\n", err)
 }
 
 if err := aesCrypt.Decrypt("plain_text_file.txt.aes", "plain_text_file.txt"); err != nil {
-    fmt.Print("Failed to decrypt the file: %v", err)
+    fmt.Printf("Failed to decrypt the file: %v\n", err)
 }
 
 ```
 
-Made with <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/Heart_coraz%C3%B3n.svg/220px-Heart_coraz%C3%B3n.svg.png" height="13
+Made with <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/Heart_coraz%C3%B3n.svg/220px-Heart_coraz%C3%B3n.svg.png" height="14
 px"> by Andrea Cioni
