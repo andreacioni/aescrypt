@@ -15,11 +15,11 @@ func TestNew(t *testing.T) {
 	aes := NewV2(password)
 
 	require.Equal(t, AESCryptVersion2, aes.version)
-	require.Equal(t, []byte(password), aes.password)
+	require.Equal(t, toUtf16LE(password), aes.password)
 	aes = NewV1(password)
 
 	require.Equal(t, AESCryptVersion1, aes.version)
-	require.Equal(t, []byte(password), aes.password)
+	require.Equal(t, toUtf16LE(password), aes.password)
 }
 
 func TestThreeBytes(t *testing.T) {

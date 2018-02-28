@@ -12,6 +12,7 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
+	"unicode/utf16"
 )
 
 type AESVersion byte
@@ -28,13 +29,12 @@ const (
 type AESCrypt struct {
 	version  AESVersion
 	password []byte
-	iv       []byte
 }
 
 func NewVersion(ver AESVersion, key string) *AESCrypt {
 	return &AESCrypt{
 		version:  ver,
-		password: []byte(key),
+		password: toUtf16LE(key),
 	}
 }
 
@@ -239,21 +239,30 @@ func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 	return nil
 }
 
-func (c *AESCrypt) getIV() []byte {
-	if c.iv == nil {
-		c.iv = generateRandomIV()
+func toUtf16LE(s string) []byte {
+	encoded := utf16.Encode([]rune(s))
+
+	b := make([]byte, 2*len(encoded))
+	for index, value := range encoded {
+		binary.LittleEndian.PutUint16(b[index*2:], value)
 	}
-	return c.iv
+
+	return b
 }
 
 func (c *AESCrypt) deriveKey(iv []byte) []byte {
 	aesKey := make([]byte, KeySizeBytes)
 	copy(aesKey, iv)
+	h := sha256.New()
 	for i := 0; i < 8192; i++ {
-		h := sha256.New()
-		h.Write(aesKey)
-		h.Write(c.password)
+		if _, err := h.Write(aesKey); err != nil {
+			panic(err)
+		}
+		if _, err := h.Write(c.password); err != nil {
+			panic(err)
+		}
 		aesKey = h.Sum(nil)
+		h.Reset()
 	}
 	return aesKey
 }
