@@ -5,7 +5,7 @@ Golang implementation of AES file encryption/decryption compatible with [AES Cry
 
 ```go
 
-aesCrypt := aescrypt.New()
+aesCrypt := aescrypt.New("super_secret_password")
 
 if err := aesCrypt.Encrypt("plain_text_file.txt", "plain_text_file.txt.aes"); err != nil {
     fmt.Print("Failed to encrypt the file: %v", err)
