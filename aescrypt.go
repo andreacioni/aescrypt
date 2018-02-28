@@ -15,22 +15,36 @@ import (
 	"unicode/utf16"
 )
 
+// AESVersion byte represents the version used by AESCrypt
 type AESVersion byte
 
 const (
-	debug                       = false
+	debug = false
+
+	// AESCryptVersion1 -> version 1
 	AESCryptVersion1 AESVersion = 0x01
+
+	// AESCryptVersion2 -> version 2
 	AESCryptVersion2 AESVersion = 0x02
-	BlockSizeBytes              = 16
-	KeySizeBytes                = 32
-	IVSizeBytes                 = 16
+
+	// BlockSizeBytes dimension (in bytes) of the block size
+	BlockSizeBytes = 16
+
+	//KeySizeBytes dimension (in bytes) of the key
+	KeySizeBytes = 32
+
+	// IVSizeBytes dimension (in bytes) of the IV
+	IVSizeBytes = 16
 )
 
+// AESCrypt struct old some information about an instance of an encrypter/decrypter
 type AESCrypt struct {
 	version  AESVersion
 	password []byte
 }
 
+// NewVersion build an AESCrypt instance with specified version and key.
+// Specified version doesn't matter on decryption (version will be read from the supplied input file)
 func NewVersion(ver AESVersion, key string) *AESCrypt {
 	return &AESCrypt{
 		version:  ver,
@@ -38,18 +52,24 @@ func NewVersion(ver AESVersion, key string) *AESCrypt {
 	}
 }
 
+// New build an AESCrypt instance using default version = 2 (shorthand for: NewV2(key))
 func New(key string) *AESCrypt {
 	return NewV2(key)
 }
 
+// NewV1 is a shorthand for NewVersion(AESCryptVersion1, key)
 func NewV1(key string) *AESCrypt {
 	return NewVersion(AESCryptVersion1, key)
 }
 
+// NewV2 is a shorthand for NewVersion(AESCryptVersion2, key)
 func NewV2(key string) *AESCrypt {
 	return NewVersion(AESCryptVersion2, key)
 }
 
+// Encrypt crypt the content of the file whose path is specified by 'fromPath'
+// and save the result in the file whose path is specified by 'toPath'.
+// If the output target file exist it will be overwritten
 func (c *AESCrypt) Encrypt(fromPath, toPath string) error {
 
 	plainFile, err := os.Open(fromPath)
@@ -125,6 +145,9 @@ func (c *AESCrypt) Encrypt(fromPath, toPath string) error {
 	return nil
 }
 
+// Decrypt decrypt the content of the file whose path is specified by 'fromPath'
+// and save the result in the file whose path is specified by 'toPath'.
+// If the output target file exist it will be overwritten.
 func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 	cipherFile, err := os.Open(fromPath)
 
@@ -267,8 +290,8 @@ func (c *AESCrypt) deriveKey(iv []byte) []byte {
 	return aesKey
 }
 
-//skipExtension used to skip the extension part (if present).
-//It returns the index of the first byte that contain IV
+// skipExtension used to skip the extension part (if present).
+// It returns the index of the first byte that contain IV
 func skipExtension(src []byte) (int, error) {
 	index := 7
 
