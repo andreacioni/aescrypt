@@ -18,7 +18,7 @@ import (
 type AESVersion byte
 
 const (
-	debug                       = true
+	debug                       = false
 	AESCryptVersion1 AESVersion = 0x01
 	AESCryptVersion2 AESVersion = 0x02
 	BlockSizeBytes              = 16

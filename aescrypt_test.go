@@ -136,7 +136,35 @@ func TestPadding(t *testing.T) {
 func TestDecryptExternalFile(t *testing.T) {
 	key := "password"
 
-	err := New(key).Decrypt("testdata/hello_world_v2.txt.aes", "testdata/txt.aes")
+	err := New(key).Decrypt("testdata/hello_world.txt.aes", "testdata/txt.aes")
+
+	require.NoError(t, err)
+
+	err = os.Remove("testdata/txt.aes")
+
+	require.NoError(t, err)
+}
+
+func TestBigFile(t *testing.T) {
+	key := "passwordpasswordpasswordpasswordpasswordpassword"
+
+	err := New(key).Encrypt("testdata/big_file.txt", "testdata/txt.aes")
+
+	require.NoError(t, err)
+
+	err = New(key).Decrypt("testdata/txt.aes", "testdata/big_file.txt")
+
+	require.NoError(t, err)
+
+	err = os.Remove("testdata/txt.aes")
+
+	require.NoError(t, err)
+}
+
+func TestDecryptBigFile(t *testing.T) {
+	key := "passwordpasswordpasswordpasswordpasswordpassword"
+
+	err := New(key).Decrypt("testdata/big_file.txt.aes", "testdata/txt.aes")
 
 	require.NoError(t, err)
 
