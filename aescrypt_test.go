@@ -55,7 +55,7 @@ func TestEncryptV2(t *testing.T) {
 
 	require.NoError(t, err)
 
-	err = NewV2(key).Decrypt("testdata/txt.aes", "testdata/hello_world.txt.1")
+	err = NewV2(key).Decrypt("testdata/txt.aes", "testdata/hello_world.txt")
 
 	require.NoError(t, err)
 
@@ -71,15 +71,11 @@ func TestEncryptV1(t *testing.T) {
 
 	require.NoError(t, err)
 
-	err = NewV1(key).Decrypt("testdata/txt.aes", "testdata/hello_world.txt.1")
+	err = NewV1(key).Decrypt("testdata/txt.aes", "testdata/hello_world.txt")
 
 	require.NoError(t, err)
 
 	err = os.Remove("testdata/txt.aes")
-
-	require.NoError(t, err)
-
-	err = os.Remove("testdata/hello_world.txt.1")
 
 	require.NoError(t, err)
 }
@@ -91,15 +87,11 @@ func TestEncryptNew(t *testing.T) {
 
 	require.NoError(t, err)
 
-	err = New(key).Decrypt("testdata/txt.aes", "testdata/hello_world.txt.1")
+	err = New(key).Decrypt("testdata/txt.aes", "testdata/hello_world.txt")
 
 	require.NoError(t, err)
 
 	err = os.Remove("testdata/txt.aes")
-
-	require.NoError(t, err)
-
-	err = os.Remove("testdata/hello_world.txt.1")
 
 	require.NoError(t, err)
 }
@@ -137,6 +129,22 @@ func TestDecryptExternaFile(t *testing.T) {
 	key := "password"
 
 	err := New(key).Decrypt("testdata/hello_world_v2.txt.aes", "testdata/txt.aes")
+
+	require.NoError(t, err)
+
+	err = os.Remove("testdata/txt.aes")
+
+	require.NoError(t, err)
+}
+
+func TestEmptyFile(t *testing.T) {
+	key := "password"
+
+	err := New(key).Encrypt("testdata/empty_file.txt", "testdata/txt.aes")
+
+	require.NoError(t, err)
+
+	err = New(key).Decrypt("testdata/txt.aes", "testdata/empty_file.txt")
 
 	require.NoError(t, err)
 
