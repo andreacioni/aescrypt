@@ -12,8 +12,7 @@ package main
 
 import (
     "fmt"
-
-	"github.com/andreacioni/aescrypt"
+    "github.com/andreacioni/aescrypt"
 )
 
 func main() {
