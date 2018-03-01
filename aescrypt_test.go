@@ -2,7 +2,6 @@ package aescrypt
 
 import (
 	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/binary"
 	"os"
 	"reflect"
@@ -16,14 +15,11 @@ func TestNew(t *testing.T) {
 	aes := NewV2(password)
 
 	require.Equal(t, AESCryptVersion2, aes.version)
-	require.Equal(t, password, aes.password)
-	require.Equal(t, sha256.Sum256([]byte(password)), aes.derivedKey)
-
+	require.Equal(t, toUtf16LE(password), aes.password)
 	aes = NewV1(password)
 
 	require.Equal(t, AESCryptVersion1, aes.version)
-	require.Equal(t, password, aes.password)
-	require.Equal(t, sha256.Sum256([]byte(password)), aes.derivedKey)
+	require.Equal(t, toUtf16LE(password), aes.password)
 }
 
 func TestThreeBytes(t *testing.T) {
@@ -60,6 +56,10 @@ func TestEncryptV2(t *testing.T) {
 	require.NoError(t, err)
 
 	err = os.Remove("testdata/txt.aes")
+
+	require.NoError(t, err)
+
+	err = os.Remove("testdata/hello_world.txt.1")
 
 	require.NoError(t, err)
 }
@@ -125,10 +125,38 @@ func TestPadding(t *testing.T) {
 	require.Equal(t, text, unpadded)
 }
 
-func TestDecryptExternaFile(t *testing.T) {
+func TestDecryptExternalFile(t *testing.T) {
 	key := "password"
 
-	err := New(key).Decrypt("testdata/hello_world_v2.txt.aes", "testdata/txt.aes")
+	err := New(key).Decrypt("testdata/hello_world.txt.aes", "testdata/txt.aes")
+
+	require.NoError(t, err)
+
+	err = os.Remove("testdata/txt.aes")
+
+	require.NoError(t, err)
+}
+
+func TestBigFile(t *testing.T) {
+	key := "passwordpasswordpasswordpasswordpasswordpassword"
+
+	err := New(key).Encrypt("testdata/big_file.txt", "testdata/txt.aes")
+
+	require.NoError(t, err)
+
+	err = New(key).Decrypt("testdata/txt.aes", "testdata/big_file.txt")
+
+	require.NoError(t, err)
+
+	err = os.Remove("testdata/txt.aes")
+
+	require.NoError(t, err)
+}
+
+func TestDecryptBigFile(t *testing.T) {
+	key := "passwordpasswordpasswordpasswordpasswordpassword"
+
+	err := New(key).Decrypt("testdata/big_file.txt.aes", "testdata/txt.aes")
 
 	require.NoError(t, err)
 

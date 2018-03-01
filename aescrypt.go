@@ -12,46 +12,64 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
+	"unicode/utf16"
 )
 
+// AESVersion byte represents the version used by AESCrypt
 type AESVersion byte
 
 const (
-	debug                       = true
+	debug = false
+
+	// AESCryptVersion1 -> version 1
 	AESCryptVersion1 AESVersion = 0x01
+
+	// AESCryptVersion2 -> version 2
 	AESCryptVersion2 AESVersion = 0x02
-	BlockSizeBytes              = 16
-	KeySizeBytes                = 32
-	IVSizeBytes                 = 16
+
+	// BlockSizeBytes dimension (in bytes) of the block size
+	BlockSizeBytes = 16
+
+	//KeySizeBytes dimension (in bytes) of the key
+	KeySizeBytes = 32
+
+	// IVSizeBytes dimension (in bytes) of the IV
+	IVSizeBytes = 16
 )
 
+// AESCrypt struct old some information about an instance of an encrypter/decrypter
 type AESCrypt struct {
-	version    AESVersion
-	password   string
-	derivedKey [KeySizeBytes]byte
-	iv         []byte
+	version  AESVersion
+	password []byte
 }
 
+// NewVersion build an AESCrypt instance with specified version and key.
+// Specified version doesn't matter on decryption (version will be read from the supplied input file)
 func NewVersion(ver AESVersion, key string) *AESCrypt {
 	return &AESCrypt{
-		version:    ver,
-		password:   key,
-		derivedKey: sha256.Sum256([]byte(key)),
+		version:  ver,
+		password: toUtf16LE(key),
 	}
 }
 
+// New build an AESCrypt instance using default version = 2 (shorthand for: NewV2(key))
 func New(key string) *AESCrypt {
 	return NewV2(key)
 }
 
+// NewV1 is a shorthand for NewVersion(AESCryptVersion1, key)
 func NewV1(key string) *AESCrypt {
 	return NewVersion(AESCryptVersion1, key)
 }
 
+// NewV2 is a shorthand for NewVersion(AESCryptVersion2, key)
 func NewV2(key string) *AESCrypt {
 	return NewVersion(AESCryptVersion2, key)
 }
 
+// Encrypt crypt the content of the file whose path is specified by 'fromPath'
+// and save the result in the file whose path is specified by 'toPath'.
+// If the output target file exist it will be overwritten
 func (c *AESCrypt) Encrypt(fromPath, toPath string) error {
 
 	plainFile, err := os.Open(fromPath)
@@ -68,7 +86,7 @@ func (c *AESCrypt) Encrypt(fromPath, toPath string) error {
 
 	iv1 := generateRandomIV()
 	iv2 := generateRandomIV()
-	aesKey1 := c.derivedKey[:]
+	aesKey1 := c.deriveKey(iv1)
 	aesKey2 := generateRandomAESKey()
 
 	debugf("IV 1: %x", iv1)
@@ -103,7 +121,7 @@ func (c *AESCrypt) Encrypt(fromPath, toPath string) error {
 
 	lastBlockLength := (len(src) % BlockSizeBytes)
 
-	debugf("E(text): %x", src)
+	debugf("text: %x", src)
 
 	cipherData := encrypt(aesKey2, iv2, src, lastBlockLength)
 
@@ -127,6 +145,9 @@ func (c *AESCrypt) Encrypt(fromPath, toPath string) error {
 	return nil
 }
 
+// Decrypt decrypt the content of the file whose path is specified by 'fromPath'
+// and save the result in the file whose path is specified by 'toPath'.
+// If the output target file exist it will be overwritten.
 func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 	cipherFile, err := os.Open(fromPath)
 
@@ -167,7 +188,7 @@ func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 	}
 
 	iv1 := src[:IVSizeBytes]
-	aesKey1 := c.derivedKey[:]
+	aesKey1 := c.deriveKey(iv1)
 
 	debugf("IV 1: %x", iv1)
 	debugf("AES 1: %x", aesKey1)
@@ -184,6 +205,12 @@ func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 	debugf("E(IV+KEY): %x", ivKeyEnc)
 	debugf("IV+KEY: %x", ivKey)
 
+	iv2 := ivKey[:IVSizeBytes]
+	aesKey2 := ivKey[IVSizeBytes:]
+
+	debugf("IV 2: %x", iv2)
+	debugf("AES 2: %x", aesKey2)
+
 	src = src[IVSizeBytes+KeySizeBytes:] //Skip to HMAC
 
 	if len(src) < KeySizeBytes {
@@ -191,13 +218,11 @@ func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 	}
 	hmac1 := src[:KeySizeBytes]
 	debugf("HMAC 1: %x", hmac1)
+	debugf("HMAC 1: %x", evaluateHMAC(aesKey1, ivKeyEnc))
 
 	if !hmac.Equal(evaluateHMAC(aesKey1, ivKeyEnc), hmac1) {
 		return fmt.Errorf("first HMAC doesn't match, entered password is not valid")
 	}
-
-	iv2 := ivKey[:IVSizeBytes]
-	aesKey2 := ivKey[IVSizeBytes:]
 
 	src = src[KeySizeBytes:] //Skip to encrypted message
 
@@ -212,15 +237,16 @@ func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 		debugf("E(text)+PAD: %x", cipherData)
 		debugf("Last block size: %d", lastBlockLength)
 
-		cipherData = decrypt(aesKey2, iv2, cipherData, lastBlockLength)
-
-		debugf("E(text): %x", cipherData)
-
-		dst.Write(cipherData)
-
 		hmac2 := evaluateHMAC(aesKey2, cipherData)
 
+		debugf("HMAC 2: %x", hmac2)
 		debugf("HMAC 2: %x", src[len(src)-KeySizeBytes:])
+
+		cipherData = decrypt(aesKey2, iv2, cipherData, lastBlockLength)
+
+		debugf("text: %x", cipherData)
+
+		dst.Write(cipherData)
 
 		if !hmac.Equal(hmac2, src[len(src)-KeySizeBytes:]) {
 			return fmt.Errorf("second HMAC doesn't match, file is invalid")
@@ -236,15 +262,36 @@ func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 	return nil
 }
 
-func (c *AESCrypt) getIV() []byte {
-	if c.iv == nil {
-		c.iv = generateRandomIV()
+func toUtf16LE(s string) []byte {
+	encoded := utf16.Encode([]rune(s))
+
+	b := make([]byte, 2*len(encoded))
+	for index, value := range encoded {
+		binary.LittleEndian.PutUint16(b[index*2:], value)
 	}
-	return c.iv
+
+	return b
 }
 
-//skipExtension used to skip the extension part (if present).
-//It returns the index of the first byte that contain IV
+func (c *AESCrypt) deriveKey(iv []byte) []byte {
+	aesKey := make([]byte, KeySizeBytes)
+	copy(aesKey, iv)
+	h := sha256.New()
+	for i := 0; i < 8192; i++ {
+		if _, err := h.Write(aesKey); err != nil {
+			panic(err)
+		}
+		if _, err := h.Write(c.password); err != nil {
+			panic(err)
+		}
+		aesKey = h.Sum(nil)
+		h.Reset()
+	}
+	return aesKey
+}
+
+// skipExtension used to skip the extension part (if present).
+// It returns the index of the first byte that contain IV
 func skipExtension(src []byte) (int, error) {
 	index := 7
 
@@ -310,6 +357,7 @@ func encrypt(key, iv, src []byte, lastBlockSize int) []byte {
 
 func evaluateHMAC(key, data []byte) []byte {
 	h := hmac.New(sha256.New, key)
+	h.Write(data)
 	return h.Sum(nil)
 }
 
