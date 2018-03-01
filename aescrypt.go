@@ -107,13 +107,13 @@ func (c *AESCrypt) Encrypt(fromPath, toPath string) error {
 	plainFile, err := os.Open(fromPath)
 
 	if err != nil {
-		return fmt.Errorf("unable to open the file to encrypt: %v", fromPath)
+		return fmt.Errorf("unable to open the file to encrypt: %v", err)
 	}
 
 	src, err := ioutil.ReadAll(plainFile)
 
 	if err != nil {
-		return fmt.Errorf("unable to read the file to encrypt: %v", fromPath)
+		return fmt.Errorf("unable to read the file to encrypt: %v", err)
 	}
 
 	iv1 := generateRandomIV()
@@ -128,28 +128,45 @@ func (c *AESCrypt) Encrypt(fromPath, toPath string) error {
 
 	var dst bytes.Buffer
 
-	dst.Write([]byte("AES"))       //Byte representation of string 'AES'
-	dst.WriteByte(byte(c.version)) //Version
-	dst.WriteByte(0x00)            //Reserverd
-
-	if c.version == AESCryptVersion2 {
-		dst.WriteByte(0x00) //No extension
-		dst.WriteByte(0x00) //No extension
+	if _, err = dst.Write([]byte("AES")); err != nil { //Byte representation of string 'AES'
+		return fmt.Errorf("failed to write to destination buffer: %v", err)
 	}
 
-	dst.Write(iv1) //16 bytes for Initialization Vector
+	if err = dst.WriteByte(byte(c.version)); err != nil { //Version
+		return fmt.Errorf("failed to write to destination buffer: %v", err)
+	}
+
+	if err = dst.WriteByte(0x00); err != nil { //Reserverd
+		return fmt.Errorf("failed to write to destination buffer: %v", err)
+	}
+
+	if c.version == AESCryptVersion2 {
+		if _, err = dst.Write([]byte{0x00, 0x00}); err != nil { //No extension
+			return fmt.Errorf("failed to write to destination buffer: %v", err)
+		}
+	}
+
+	if _, err = dst.Write(iv1); err != nil { //16 bytes for Initialization Vector
+		return fmt.Errorf("failed to write to destination buffer: %v", err)
+	}
+
 	ivKey := append(iv2, aesKey2...)
 	ivKeyEnc := encrypt(aesKey1, iv1, ivKey, 0) // Encrypted IV + key
 
 	debugf("IV+KEY: %x", ivKey)
 	debugf("E(IV+KEY): %x", ivKeyEnc)
 
-	dst.Write(ivKeyEnc)
+	if _, err = dst.Write(ivKeyEnc); err != nil {
+		return fmt.Errorf("failed to write to destination buffer: %v", err)
+	}
+
 	hmac1 := evaluateHMAC(aesKey1, ivKeyEnc)
 
 	debugf("HMAC 1: %x", hmac1)
 
-	dst.Write(hmac1) // HMAC(Encrypted IV + key)
+	if _, err = dst.Write(hmac1); err != nil { // HMAC(Encrypted IV + key)
+		return fmt.Errorf("failed to write to destination buffer: %v", err)
+	}
 
 	lastBlockLength := (len(src) % BlockSizeBytes)
 
@@ -160,14 +177,17 @@ func (c *AESCrypt) Encrypt(fromPath, toPath string) error {
 	debugf("E(text)+PAD: %x", cipherData)
 	debugf("Last block size: %d", lastBlockLength)
 
-	dst.Write(cipherData)
-	dst.WriteByte(byte(lastBlockLength))
+	if _, err = dst.Write(append(cipherData, byte(lastBlockLength))); err != nil { //Cipher data + last block length
+		return fmt.Errorf("failed to write to destination buffer: %v", err)
+	}
 
 	hmac2 := evaluateHMAC(aesKey2, cipherData)
 
 	debugf("HMAC 2: %x", hmac2)
 
-	dst.Write(hmac2)
+	if _, err = dst.Write(hmac2); err != nil {
+		return fmt.Errorf("failed to write to destination buffer: %v", err)
+	}
 
 	err = ioutil.WriteFile(toPath, dst.Bytes(), 0600)
 
@@ -184,13 +204,13 @@ func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 	cipherFile, err := os.Open(fromPath)
 
 	if err != nil {
-		return fmt.Errorf("unable to open the file to decrypt: %v", fromPath)
+		return fmt.Errorf("unable to open the file to decrypt: %v", err)
 	}
 
 	src, err := ioutil.ReadAll(cipherFile)
 
 	if err != nil {
-		return fmt.Errorf("unable to read the file to decrypt: %v", fromPath)
+		return fmt.Errorf("unable to read the file to decrypt: %v", err)
 	}
 
 	if !reflect.DeepEqual(src[:3], []byte("AES")) {
@@ -278,7 +298,9 @@ func (c *AESCrypt) Decrypt(fromPath, toPath string) error {
 
 		debugf("text: %x", cipherData)
 
-		dst.Write(cipherData)
+		if _, err = dst.Write(cipherData); err != nil {
+			return fmt.Errorf("failed to write to destination buffer: %v", err)
+		}
 
 		if !hmac.Equal(hmac2, src[len(src)-KeySizeBytes:]) {
 			return fmt.Errorf("second HMAC doesn't match, file is invalid")
