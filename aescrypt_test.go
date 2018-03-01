@@ -58,10 +58,6 @@ func TestEncryptV2(t *testing.T) {
 	err = os.Remove("testdata/txt.aes")
 
 	require.NoError(t, err)
-
-	err = os.Remove("testdata/hello_world.txt.1")
-
-	require.NoError(t, err)
 }
 
 func TestEncryptV1(t *testing.T) {
